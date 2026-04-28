@@ -17,23 +17,23 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 
 const markers = {};
-let mapCentered = false;
-
 if (navigator.geolocation) {
-    navigator.geolocation.watchPosition((position) => {
-        const { latitude, longitude } = position.coords;
-        socket.emit("send-location", { latitude, longitude });
-        status.innerText = `📍 Sharing: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-    },
-    (error) => {
-        status.style.background = "rgba(200,0,0,0.8)";
-        status.innerText = `❌ Location error: ${error.message}`;
-    },
-    {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-    });
+    setInterval(() => {
+        navigator.geolocation.getCurrentPosition((position) => {
+            const { latitude, longitude } = position.coords;
+            socket.emit("send-location", { latitude, longitude });
+            status.innerText = `📍 Sharing: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+        },
+        (error) => {
+            status.style.background = "rgba(200,0,0,0.8)";
+            status.innerText = `❌ Location error: ${error.message}`;
+        },
+        {
+            enableHighAccuracy: true,
+            timeout: 5000,
+            maximumAge: 0
+        });
+    }, 2000);
 } else {
     status.style.background = "rgba(200,0,0,0.8)";
     status.innerText = "❌ Geolocation not supported";
@@ -48,10 +48,12 @@ socket.on("receive-location", (data) => {
         markers[id] = L.marker([latitude, longitude]).addTo(map);
     }
 
-    // center map on first location received (your own)
-    if (!mapCentered) {
-        map.setView([latitude, longitude], 16);
-        mapCentered = true;
+    // fit map to show all markers
+    const allLatLngs = Object.values(markers).map(m => m.getLatLng());
+    if (allLatLngs.length === 1) {
+        map.setView(allLatLngs[0], 16);
+    } else {
+        map.fitBounds(L.latLngBounds(allLatLngs), { padding: [50, 50] });
     }
 
     userCount.innerText = `Users: ${Object.keys(markers).length}`;
