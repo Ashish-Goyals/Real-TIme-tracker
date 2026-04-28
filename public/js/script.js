@@ -1,134 +1,177 @@
 const socket = io();
 
-// service worker registration
+// service worker
 if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/service-worker.js").then(async (reg) => {
         navigator.serviceWorker.addEventListener("message", (e) => {
-            if (e.data.type === "request-location") {
-                navigator.geolocation.getCurrentPosition((position) => {
-                    const { latitude, longitude } = position.coords;
-                    socket.emit("send-location", { latitude, longitude });
-                }, () => {}, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
-            }
+            if (e.data.type === "request-location") getLocation();
         });
         if ("periodicSync" in reg) {
-            try {
-                await reg.periodicSync.register("location-sync", { minInterval: 2000 });
-            } catch (e) {}
+            try { await reg.periodicSync.register("location-sync", { minInterval: 7000 }); } catch (e) {}
         }
     });
 }
 
-// wake lock - keep screen on
+// wake lock
 async function requestWakeLock() {
     try { await navigator.wakeLock.request("screen"); } catch (e) {}
 }
 requestWakeLock();
 document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") requestWakeLock();
+    if (document.visibilityState === "visible") {
+        requestWakeLock();
+        getLocation();
+    }
 });
 
-// status bar
-const status = document.createElement("div");
-status.style.cssText = "position:fixed;top:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);color:white;padding:8px 16px;border-radius:20px;z-index:9999;font-size:14px;";
-status.innerText = "Requesting location...";
-document.body.appendChild(status);
+// ui elements
+const statusDot  = document.getElementById("status-dot");
+const statusText = document.getElementById("status-text");
+const myCoords   = document.getElementById("my-coords");
+const otherCoords= document.getElementById("other-coords");
+const distanceBar= document.getElementById("distance-bar");
+const distanceText=document.getElementById("distance-text");
+const btnMe      = document.getElementById("btn-me");
+const btnBoth    = document.getElementById("btn-both");
+const btnOther   = document.getElementById("btn-other");
 
-// user count
-const userCount = document.createElement("div");
-userCount.style.cssText = "position:fixed;top:50px;left:50%;transform:translateX(-50%);background:rgba(0,100,0,0.8);color:white;padding:6px 14px;border-radius:20px;z-index:9999;font-size:13px;";
-userCount.innerText = "Users: 0";
-document.body.appendChild(userCount);
+// map
+const map = L.map("map", { zoomControl: false }).setView([0, 0], 2);
+L.control.zoom({ position: "topright" }).addTo(map);
 
-// map setup
-const map = L.map("map").setView([0, 0], 2);
-
-const streets = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap"
-});
-
-const satellite = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-    attribution: "© Esri"
-});
-
-const streetDetail = L.tileLayer("https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap France"
-});
-
+const streets = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" });
+const satellite = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { attribution: "© Esri" });
+const streetDetail = L.tileLayer("https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap France" });
 streets.addTo(map);
+L.control.layers({ "🗺️ Street": streets, "🛰️ Satellite": satellite, "🏙️ Detail": streetDetail }).addTo(map);
 
-L.control.layers({
-    "🗺️ Street": streets,
-    "🛰️ Satellite": satellite,
-    "🏙️ Street Detail": streetDetail
-}).addTo(map);
+// custom icons
+const myIcon = L.divIcon({ className: "my-marker-icon",    iconSize: [32, 32], iconAnchor: [16, 32] });
+const otherIcon = L.divIcon({ className: "other-marker-icon", iconSize: [32, 32], iconAnchor: [16, 32] });
 
-const markers = {};
-let myId = null;
-let mapCentered = false;
+let myId       = null;
+let myMarker   = null;
+let otherMarker= null;
+let myLatLng   = null;
+let otherLatLng= null;
+let mapCentered= false;
 let userInteracted = false;
 
 map.on("dragstart zoomstart", () => { userInteracted = true; });
 
 socket.on("connect", () => { myId = socket.id; });
 
-if (navigator.geolocation) {
-    // step 1: get quick low-accuracy location immediately
-    navigator.geolocation.getCurrentPosition((position) => {
-        const { latitude, longitude } = position.coords;
-        socket.emit("send-location", { latitude, longitude });
-        status.innerText = `📍 ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-        status.style.background = "rgba(0,0,0,0.7)";
-    }, () => {}, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
-
-    // step 2: watchPosition with high accuracy for real-time updates
-    navigator.geolocation.watchPosition((position) => {
-        const { latitude, longitude } = position.coords;
-        socket.emit("send-location", { latitude, longitude });
-        status.innerText = `📍 ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-        status.style.background = "rgba(0,0,0,0.7)";
-    }, (error) => {
-        status.style.background = "rgba(200,0,0,0.8)";
-        status.innerText = `❌ ${error.message}`;
-    }, { enableHighAccuracy: true, timeout: 60000, maximumAge: 0 });
-} else {
-    status.style.background = "rgba(200,0,0,0.8)";
-    status.innerText = "❌ Geolocation not supported";
+// distance calculation (haversine)
+function calcDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) ** 2 + Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLon/2) ** 2;
+    const d = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return d < 1000 ? `${Math.round(d)} m` : `${(d/1000).toFixed(2)} km`;
 }
 
+function updateDistance() {
+    if (myLatLng && otherLatLng) {
+        distanceBar.style.display = "block";
+        distanceText.innerText = calcDistance(myLatLng.lat, myLatLng.lng, otherLatLng.lat, otherLatLng.lng);
+    }
+}
+
+function getLocation() {
+    if (!navigator.geolocation) {
+        statusDot.className = "error";
+        statusText.innerText = "Geolocation not supported";
+        return;
+    }
+    navigator.geolocation.getCurrentPosition((pos) => {
+        const { latitude, longitude } = pos.coords;
+        socket.emit("send-location", { latitude, longitude });
+        myLatLng = { lat: latitude, lng: longitude };
+        myCoords.innerText = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+        statusDot.className = "active";
+        statusText.innerText = "Sharing location";
+        updateDistance();
+    }, (err) => {
+        statusDot.className = "error";
+        statusText.innerText = err.message;
+    }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
+}
+
+// instant low-accuracy fix first
+getLocation();
+
+// high accuracy watch for real-time updates
+navigator.geolocation && navigator.geolocation.watchPosition((pos) => {
+    const { latitude, longitude } = pos.coords;
+    socket.emit("send-location", { latitude, longitude });
+    myLatLng = { lat: latitude, lng: longitude };
+    myCoords.innerText = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+    statusDot.className = "active";
+    statusText.innerText = "Sharing location";
+    updateDistance();
+}, (err) => {
+    statusDot.className = "error";
+    statusText.innerText = err.message;
+}, { enableHighAccuracy: true, timeout: 60000, maximumAge: 0 });
+
 socket.on("receive-location", ({ id, latitude, longitude }) => {
-    if (markers[id]) {
-        markers[id].setLatLng([latitude, longitude]);
+    if (id === myId) {
+        // update own marker
+        if (!myMarker) {
+            myMarker = L.marker([latitude, longitude], { icon: myIcon }).addTo(map).bindPopup("You");
+        } else {
+            myMarker.setLatLng([latitude, longitude]);
+        }
+        if (!mapCentered) {
+            map.setView([latitude, longitude], 17);
+            mapCentered = true;
+        }
     } else {
-        markers[id] = L.marker([latitude, longitude]).addTo(map);
-    }
-
-    // center on own location first time
-    if (id === myId && !mapCentered) {
-        map.setView([latitude, longitude], 18);
-        mapCentered = true;
-    }
-
-    // auto fit all markers only if user hasn't interacted
-    if (mapCentered && !userInteracted) {
-        const allLatLngs = Object.values(markers).map(m => m.getLatLng());
-        if (allLatLngs.length > 1) {
-            map.fitBounds(L.latLngBounds(allLatLngs), { padding: [80, 80], maxZoom: 18 });
+        // update other user's marker
+        otherLatLng = { lat: latitude, lng: longitude };
+        otherCoords.innerText = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+        btnOther.disabled = false;
+        if (!otherMarker) {
+            otherMarker = L.marker([latitude, longitude], { icon: otherIcon }).addTo(map).bindPopup("Other");
+        } else {
+            otherMarker.setLatLng([latitude, longitude]);
+        }
+        updateDistance();
+        // auto fit both if user hasn't interacted
+        if (!userInteracted && myMarker) {
+            map.fitBounds(L.latLngBounds([myMarker.getLatLng(), otherMarker.getLatLng()]), { padding: [80, 80], maxZoom: 18 });
         }
     }
-
-    userCount.innerText = `Users: ${Object.keys(markers).length}`;
 });
 
-socket.on("user-disconnected", (id) => {
-    if (markers[id]) {
-        map.removeLayer(markers[id]);
-        delete markers[id];
-    }
-    userCount.innerText = `Users: ${Object.keys(markers).length}`;
+socket.on("user-disconnected", () => {
+    if (otherMarker) { map.removeLayer(otherMarker); otherMarker = null; }
+    otherLatLng = null;
+    otherCoords.innerText = "Disconnected";
+    btnOther.disabled = true;
+    distanceBar.style.display = "none";
 });
 
 socket.on("room-full", () => {
-    status.style.background = "rgba(200,0,0,0.8)";
-    status.innerText = "❌ Max 2 users allowed. Try again later.";
+    statusDot.className = "error";
+    statusText.innerText = "Session full. Max 2 users allowed.";
+});
+
+// buttons
+btnMe.addEventListener("click", () => {
+    if (myMarker) { map.setView(myMarker.getLatLng(), 17); userInteracted = false; }
+});
+
+btnBoth.addEventListener("click", () => {
+    if (myMarker && otherMarker) {
+        map.fitBounds(L.latLngBounds([myMarker.getLatLng(), otherMarker.getLatLng()]), { padding: [80, 80], maxZoom: 18 });
+        userInteracted = false;
+    } else if (myMarker) {
+        map.setView(myMarker.getLatLng(), 17);
+    }
+});
+
+btnOther.addEventListener("click", () => {
+    if (otherMarker) { map.setView(otherMarker.getLatLng(), 17); }
 });
