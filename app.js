@@ -21,8 +21,8 @@ app.use((req, res, next) => {
 const userLocations = {};
 
 io.on("connection", (socket) => {
-    // block if more than 2 users connected
-    if (io.sockets.sockets.size > 2) {
+    // block if more than 2 active users (who have sent location)
+    if (Object.keys(userLocations).length >= 2) {
         socket.emit("room-full");
         socket.disconnect();
         return;
