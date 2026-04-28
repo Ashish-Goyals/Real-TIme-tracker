@@ -7,30 +7,29 @@ const app = express();
 const server = http.createServer(app);
 const io = socketio(server);
 
-// View engine
 app.set("view engine", "ejs");
-
-// Static files
 app.use(express.static(path.join(__dirname, "public")));
 
-// Socket connection
+const userLocations = {};
+
 io.on("connection", (socket) => {
+    // send all existing user locations to newly connected user
+    Object.entries(userLocations).forEach(([id, data]) => {
+        socket.emit("receive-location", { id, ...data });
+    });
+
     socket.on("send-location", (data) => {
+        userLocations[socket.id] = data;
         io.emit("receive-location", { id: socket.id, ...data });
     });
 
     socket.on("disconnect", () => {
+        delete userLocations[socket.id];
         io.emit("user-disconnected", socket.id);
     });
 });
 
-// Route
-app.get("/", (req, res) => {
-    res.render("index");
-});
+app.get("/", (req, res) => res.render("index"));
 
-// Start server
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

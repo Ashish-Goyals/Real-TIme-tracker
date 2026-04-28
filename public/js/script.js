@@ -1,69 +1,85 @@
 const socket = io();
 
+// service worker registration
+if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/service-worker.js").then(async (reg) => {
+        navigator.serviceWorker.addEventListener("message", (e) => {
+            if (e.data.type === "request-location") sendLocation();
+        });
+        if ("periodicSync" in reg) {
+            try {
+                await reg.periodicSync.register("location-sync", { minInterval: 2000 });
+            } catch (e) {}
+        }
+    });
+}
+
+// wake lock - keep screen on
+async function requestWakeLock() {
+    try { await navigator.wakeLock.request("screen"); } catch (e) {}
+}
+requestWakeLock();
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") requestWakeLock();
+});
+
+// status bar
 const status = document.createElement("div");
 status.style.cssText = "position:fixed;top:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);color:white;padding:8px 16px;border-radius:20px;z-index:9999;font-size:14px;";
 status.innerText = "Requesting location...";
 document.body.appendChild(status);
 
+// user count
 const userCount = document.createElement("div");
 userCount.style.cssText = "position:fixed;top:50px;left:50%;transform:translateX(-50%);background:rgba(0,100,0,0.8);color:white;padding:6px 14px;border-radius:20px;z-index:9999;font-size:13px;";
 userCount.innerText = "Users: 0";
 document.body.appendChild(userCount);
 
+// map setup
 const map = L.map("map").setView([0, 0], 2);
-
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "© OpenStreetMap contributors"
 }).addTo(map);
 
 const markers = {};
 let myId = null;
-let mapInitialized = false;
+let mapCentered = false;
 
-// get own socket id on connect
-socket.on("connect", () => {
-    myId = socket.id;
-});
+socket.on("connect", () => { myId = socket.id; });
+
+function sendLocation() {
+    navigator.geolocation.getCurrentPosition((position) => {
+        const { latitude, longitude } = position.coords;
+        socket.emit("send-location", { latitude, longitude });
+        status.innerText = `📍 ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+    }, (error) => {
+        status.style.background = "rgba(200,0,0,0.8)";
+        status.innerText = `❌ ${error.message}`;
+    }, { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
+}
 
 if (navigator.geolocation) {
-    setInterval(() => {
-        navigator.geolocation.getCurrentPosition((position) => {
-            const { latitude, longitude } = position.coords;
-            socket.emit("send-location", { latitude, longitude });
-            status.innerText = `📍 Sharing: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-        },
-        (error) => {
-            status.style.background = "rgba(200,0,0,0.8)";
-            status.innerText = `❌ Location error: ${error.message}`;
-        },
-        {
-            enableHighAccuracy: true,
-            timeout: 5000,
-            maximumAge: 0
-        });
-    }, 2000);
+    setInterval(sendLocation, 2000);
 } else {
     status.style.background = "rgba(200,0,0,0.8)";
     status.innerText = "❌ Geolocation not supported";
 }
 
-socket.on("receive-location", (data) => {
-    const { id, latitude, longitude } = data;
-
+socket.on("receive-location", ({ id, latitude, longitude }) => {
     if (markers[id]) {
         markers[id].setLatLng([latitude, longitude]);
     } else {
         markers[id] = L.marker([latitude, longitude]).addTo(map);
     }
 
-    // center map on YOUR own location first time only
-    if (id === myId && !mapInitialized) {
+    // center on own location first time
+    if (id === myId && !mapCentered) {
         map.setView([latitude, longitude], 18);
-        mapInitialized = true;
+        mapCentered = true;
     }
 
-    // once map is initialized, fit all markers
-    if (mapInitialized) {
+    // fit all markers on screen
+    if (mapCentered) {
         const allLatLngs = Object.values(markers).map(m => m.getLatLng());
         if (allLatLngs.length > 1) {
             map.fitBounds(L.latLngBounds(allLatLngs), { padding: [80, 80], maxZoom: 18 });
