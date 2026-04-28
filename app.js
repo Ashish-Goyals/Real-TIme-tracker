@@ -13,6 +13,13 @@ app.use(express.static(path.join(__dirname, "public")));
 const userLocations = {};
 
 io.on("connection", (socket) => {
+    // block if more than 2 users connected
+    if (io.sockets.sockets.size > 2) {
+        socket.emit("room-full");
+        socket.disconnect();
+        return;
+    }
+
     // send only currently connected users' locations
     Object.entries(userLocations).forEach(([id, data]) => {
         if (io.sockets.sockets.get(id)) {

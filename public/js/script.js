@@ -113,3 +113,8 @@ socket.on("user-disconnected", (id) => {
     }
     userCount.innerText = `Users: ${Object.keys(markers).length}`;
 });
+
+socket.on("room-full", () => {
+    status.style.background = "rgba(200,0,0,0.8)";
+    status.innerText = "❌ Max 2 users allowed. Try again later.";
+});
