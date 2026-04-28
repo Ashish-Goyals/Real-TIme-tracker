@@ -16,12 +16,10 @@ app.use(express.static(path.join(__dirname, "public")));
 // Socket connection
 io.on("connection", (socket) => {
     socket.on("send-location", (data) => {
-        userLocations[socket.id] = data;
         io.emit("receive-location", { id: socket.id, ...data });
     });
 
     socket.on("disconnect", () => {
-        delete userLocations[socket.id];
         io.emit("user-disconnected", socket.id);
     });
 });
@@ -32,6 +30,7 @@ app.get("/", (req, res) => {
 });
 
 // Start server
-server.listen(3000, () => {
-    console.log("Server running on http://localhost:3000");
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
 });
