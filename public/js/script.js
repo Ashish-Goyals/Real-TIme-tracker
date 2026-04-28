@@ -61,6 +61,9 @@ L.control.layers({
 const markers = {};
 let myId = null;
 let mapCentered = false;
+let userInteracted = false;
+
+map.on("dragstart zoomstart", () => { userInteracted = true; });
 
 socket.on("connect", () => { myId = socket.id; });
 
@@ -95,8 +98,8 @@ socket.on("receive-location", ({ id, latitude, longitude }) => {
         mapCentered = true;
     }
 
-    // fit all markers on screen
-    if (mapCentered) {
+    // auto fit all markers only if user hasn't interacted
+    if (mapCentered && !userInteracted) {
         const allLatLngs = Object.values(markers).map(m => m.getLatLng());
         if (allLatLngs.length > 1) {
             map.fitBounds(L.latLngBounds(allLatLngs), { padding: [80, 80], maxZoom: 18 });
