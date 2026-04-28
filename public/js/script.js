@@ -37,8 +37,25 @@ document.body.appendChild(userCount);
 
 // map setup
 const map = L.map("map").setView([0, 0], 2);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap contributors"
+
+const streets = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap"
+});
+
+const satellite = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+    attribution: "© Esri"
+});
+
+const streetDetail = L.tileLayer("https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap France"
+});
+
+streets.addTo(map);
+
+L.control.layers({
+    "🗺️ Street": streets,
+    "🛰️ Satellite": satellite,
+    "🏙️ Street Detail": streetDetail
 }).addTo(map);
 
 const markers = {};
