@@ -5,6 +5,11 @@ status.style.cssText = "position:fixed;top:10px;left:50%;transform:translateX(-5
 status.innerText = "Requesting location...";
 document.body.appendChild(status);
 
+const userCount = document.createElement("div");
+userCount.style.cssText = "position:fixed;top:50px;left:50%;transform:translateX(-50%);background:rgba(0,100,0,0.8);color:white;padding:6px 14px;border-radius:20px;z-index:9999;font-size:13px;";
+userCount.innerText = "Users: 0";
+document.body.appendChild(userCount);
+
 const map = L.map("map").setView([0, 0], 2);
 
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -12,11 +17,7 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 
 const markers = {};
-let myId = null;
-
-socket.on("connect", () => {
-    myId = socket.id;
-});
+let mapCentered = false;
 
 if (navigator.geolocation) {
     navigator.geolocation.watchPosition((position) => {
@@ -47,10 +48,13 @@ socket.on("receive-location", (data) => {
         markers[id] = L.marker([latitude, longitude]).addTo(map);
     }
 
-    // only center map on your own marker
-    if (id === myId) {
+    // center map on first location received (your own)
+    if (!mapCentered) {
         map.setView([latitude, longitude], 16);
+        mapCentered = true;
     }
+
+    userCount.innerText = `Users: ${Object.keys(markers).length}`;
 });
 
 socket.on("user-disconnected", (id) => {
@@ -58,4 +62,5 @@ socket.on("user-disconnected", (id) => {
         map.removeLayer(markers[id]);
         delete markers[id];
     }
+    userCount.innerText = `Users: ${Object.keys(markers).length}`;
 });
