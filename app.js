@@ -13,21 +13,22 @@ app.set("view engine", "ejs");
 // Static files
 app.use(express.static(path.join(__dirname, "public")));
 
+const userLocations = {};
+
 // Socket connection
 io.on("connection", (socket) => {
-    console.log("User connected:", socket.id);
+    // Send existing users' locations to newly connected user
+    Object.keys(userLocations).forEach(id => {
+        socket.emit("receive-location", { id, ...userLocations[id] });
+    });
 
     socket.on("send-location", (data) => {
-        // Broadcast to all clients
-        io.emit("receive-location", {
-            id: socket.id,
-            latitude: data.latitude,
-            longitude: data.longitude,
-        });
+        userLocations[socket.id] = data;
+        io.emit("receive-location", { id: socket.id, ...data });
     });
 
     socket.on("disconnect", () => {
-        console.log("User disconnected:", socket.id);
+        delete userLocations[socket.id];
         io.emit("user-disconnected", socket.id);
     });
 });
