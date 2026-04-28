@@ -10,6 +10,14 @@ const io = socketio(server);
 app.set("view engine", "ejs");
 app.use(express.static(path.join(__dirname, "public")));
 
+// disable caching
+app.use((req, res, next) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    next();
+});
+
 const userLocations = {};
 
 io.on("connection", (socket) => {

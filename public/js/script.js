@@ -79,7 +79,7 @@ function sendLocation() {
 }
 
 if (navigator.geolocation) {
-    setInterval(sendLocation, 2000);
+    setInterval(sendLocation, 7000);
 } else {
     status.style.background = "rgba(200,0,0,0.8)";
     status.innerText = "❌ Geolocation not supported";
