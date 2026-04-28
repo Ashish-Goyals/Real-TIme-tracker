@@ -4,7 +4,12 @@ const socket = io();
 if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/service-worker.js").then(async (reg) => {
         navigator.serviceWorker.addEventListener("message", (e) => {
-            if (e.data.type === "request-location") sendLocation();
+            if (e.data.type === "request-location") {
+                navigator.geolocation.getCurrentPosition((position) => {
+                    const { latitude, longitude } = position.coords;
+                    socket.emit("send-location", { latitude, longitude });
+                }, () => {}, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
+            }
         });
         if ("periodicSync" in reg) {
             try {
@@ -67,19 +72,25 @@ map.on("dragstart zoomstart", () => { userInteracted = true; });
 
 socket.on("connect", () => { myId = socket.id; });
 
-function sendLocation() {
+if (navigator.geolocation) {
+    // step 1: get quick low-accuracy location immediately
     navigator.geolocation.getCurrentPosition((position) => {
         const { latitude, longitude } = position.coords;
         socket.emit("send-location", { latitude, longitude });
         status.innerText = `📍 ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+        status.style.background = "rgba(0,0,0,0.7)";
+    }, () => {}, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
+
+    // step 2: watchPosition with high accuracy for real-time updates
+    navigator.geolocation.watchPosition((position) => {
+        const { latitude, longitude } = position.coords;
+        socket.emit("send-location", { latitude, longitude });
+        status.innerText = `📍 ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+        status.style.background = "rgba(0,0,0,0.7)";
     }, (error) => {
         status.style.background = "rgba(200,0,0,0.8)";
         status.innerText = `❌ ${error.message}`;
-    }, { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
-}
-
-if (navigator.geolocation) {
-    setInterval(sendLocation, 7000);
+    }, { enableHighAccuracy: true, timeout: 60000, maximumAge: 0 });
 } else {
     status.style.background = "rgba(200,0,0,0.8)";
     status.innerText = "❌ Geolocation not supported";
