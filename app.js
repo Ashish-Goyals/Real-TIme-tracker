@@ -13,15 +13,8 @@ app.set("view engine", "ejs");
 // Static files
 app.use(express.static(path.join(__dirname, "public")));
 
-const userLocations = {};
-
 // Socket connection
 io.on("connection", (socket) => {
-    // Send existing users' locations to newly connected user
-    Object.keys(userLocations).forEach(id => {
-        socket.emit("receive-location", { id, ...userLocations[id] });
-    });
-
     socket.on("send-location", (data) => {
         userLocations[socket.id] = data;
         io.emit("receive-location", { id: socket.id, ...data });
