@@ -17,6 +17,14 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 
 const markers = {};
+let myId = null;
+let mapInitialized = false;
+
+// get own socket id on connect
+socket.on("connect", () => {
+    myId = socket.id;
+});
+
 if (navigator.geolocation) {
     setInterval(() => {
         navigator.geolocation.getCurrentPosition((position) => {
@@ -48,12 +56,18 @@ socket.on("receive-location", (data) => {
         markers[id] = L.marker([latitude, longitude]).addTo(map);
     }
 
-    // fit map to show all markers
-    const allLatLngs = Object.values(markers).map(m => m.getLatLng());
-    if (allLatLngs.length === 1) {
-        map.setView(allLatLngs[0], 16);
-    } else {
-        map.fitBounds(L.latLngBounds(allLatLngs), { padding: [50, 50] });
+    // center map on YOUR own location first time only
+    if (id === myId && !mapInitialized) {
+        map.setView([latitude, longitude], 18);
+        mapInitialized = true;
+    }
+
+    // once map is initialized, fit all markers
+    if (mapInitialized) {
+        const allLatLngs = Object.values(markers).map(m => m.getLatLng());
+        if (allLatLngs.length > 1) {
+            map.fitBounds(L.latLngBounds(allLatLngs), { padding: [80, 80], maxZoom: 18 });
+        }
     }
 
     userCount.innerText = `Users: ${Object.keys(markers).length}`;
