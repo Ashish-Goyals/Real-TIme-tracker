@@ -13,9 +13,13 @@ app.use(express.static(path.join(__dirname, "public")));
 const userLocations = {};
 
 io.on("connection", (socket) => {
-    // send all existing user locations to newly connected user
+    // send only currently connected users' locations
     Object.entries(userLocations).forEach(([id, data]) => {
-        socket.emit("receive-location", { id, ...data });
+        if (io.sockets.sockets.get(id)) {
+            socket.emit("receive-location", { id, ...data });
+        } else {
+            delete userLocations[id];
+        }
     });
 
     socket.on("send-location", (data) => {
